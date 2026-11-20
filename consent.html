@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>BossD parent approval</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;background:#f5f3fa;margin:0;color:#1b1b1f}
+  .wrap{max-width:560px;margin:0 auto;padding:24px 18px 60px}
+  .card{background:#fff;border-radius:16px;padding:22px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+  h1{font-size:22px;margin:0 0 10px;color:#3B1A6B}
+  h2{font-size:16px;margin:20px 0 6px}
+  p,li{line-height:1.5;font-size:15px}
+  button{background:#3B1A6B;color:#fff;border:0;border-radius:10px;padding:13px 20px;font-size:16px;font-weight:bold;width:100%;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  label{display:flex;gap:10px;align-items:flex-start;margin:18px 0;font-size:15px;line-height:1.4}
+  .err{color:#b00020;margin-top:12px}
+  .small{font-size:13px;color:#555}
+</style>
+</head>
+<body>
+<div class="wrap"><div class="card" id="box"><p>Loading…</p></div></div>
+<script>
+// === FILL THESE TWO IN ===
+var FUNCTIONS_URL = "https://idzntjlenfcygalpwygh.supabase.co/functions/v1";
+var PRIVACY_URL = "https://bossd.ca/privacy.html";
+// =========================
+
+var params = new URLSearchParams(location.search);
+var token = params.get("t") || "";
+var box = document.getElementById("box");
+
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function show(html){box.innerHTML = html;}
+async function call(fn, body){
+  var r = await fetch(FUNCTIONS_URL + "/" + fn, {method:"POST", headers:{"content-type":"application/json"}, body: JSON.stringify(body)});
+  return r.json();
+}
+
+function msg(title, text){ show("<h1>"+title+"</h1><p>"+text+"</p>"); }
+
+async function init(){
+  if(!/^[0-9a-f]{64}$/.test(token)) return msg("This link isn't valid","Please ask your child to send a new email from the BossD app.");
+  var info;
+  try { info = await call("consent-info", {token: token}); } catch(e){ return msg("Something went wrong","Please try again in a moment."); }
+  switch(info.state){
+    case "approved": return msg("All done. Thank you!","The account is approved. Your child can now use BossD. You can close this page.");
+    case "review": return msg("We're reviewing this","We couldn't read the date of birth on the ID, so a person will review it. We'll email you at the address you were sent this link on.");
+    case "expired": return msg("This link has expired","Please ask your child to send a new one from the BossD app.");
+    case "locked": return msg("Too many tries","Please ask your child to send a new link from the BossD app.");
+    case "verifying":
+      if(params.get("done")) return msg("Checking your ID…","This usually takes under a minute. This page will update on its own.") , setTimeout(init, 5000);
+      return renderReady(info, "Your earlier ID check wasn't finished. You can start it again below.");
+    case "failed": return renderReady(info, "The ID check didn't go through. Please try again with a clear photo of a government-issued photo ID.");
+    case "ready": return renderReady(info, "");
+    default: return msg("This link isn't valid","Please ask your child to send a new email from the BossD app.");
+  }
+}
+
+function renderReady(info, note){
+  var name = esc(info.childName || "your child");
+  show(
+    "<h1>Approve "+name+"'s BossD account</h1>"+
+    (note ? "<p class='err'>"+esc(note)+"</p>" : "")+
+    "<p>BossD is a planner and focus app for students, run by Ethurion Inc. in Ontario, Canada. Because of "+name+"'s age, we need a parent or legal guardian to approve before the account is used.</p>"+
+    "<h2>What BossD collects</h2><ul>"+
+    "<li>Name, date of birth, country and the tasks, notes and journal entries "+name+" chooses to add.</li>"+
+    "<li>Basic technical data needed to run the app.</li>"+
+    "<li>AI features send only what's needed to answer a request; we don't sell data or show ads.</li></ul>"+
+    "<p>Read the full <a href='"+esc(PRIVACY_URL)+"' target='_blank' rel='noopener'>Privacy Policy</a>. You can ask us to see or delete "+name+"'s data any time at info@ethurion.com.</p>"+
+    "<h2>Confirm it's you</h2>"+
+    "<p>Stripe will ask for a photo of your ID and a quick selfie to confirm you are an adult. We never see or store your ID. Stripe checks it and tells us only yes or no, then the ID data is erased.</p>"+
+    "<label><input type='checkbox' id='ok'> <span>I am the parent or legal guardian of "+name+", I am 18 or over, and I have read the Privacy Policy and approve this account.</span></label>"+
+    "<button id='go' disabled>Continue to ID check</button>"+
+    "<p class='err' id='err'></p>"+
+    "<p class='small'>If you don't know "+name+", close this page. Nothing will happen.</p>"
+  );
+  var ok = document.getElementById("ok"), go = document.getElementById("go"), err = document.getElementById("err");
+  ok.onchange = function(){ go.disabled = !ok.checked; };
+  go.onclick = async function(){
+    go.disabled = true; err.textContent = "";
+    try {
+      var r = await call("start-id-check", {token: token, confirmAdult: true});
+      if(r.url){ location.href = r.url; return; }
+      err.textContent = r.error || "Something went wrong. Please try again.";
+    } catch(e){ err.textContent = "Something went wrong. Please try again."; }
+    go.disabled = !ok.checked;
+  };
+}
+
+init();
+</script>
+</body>
+</html>
